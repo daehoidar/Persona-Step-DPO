@@ -27,3 +27,4 @@ __pycache__/
 .DS_Store
 _runpod_results/
 data_pipeline/output.zip
+.openai_key

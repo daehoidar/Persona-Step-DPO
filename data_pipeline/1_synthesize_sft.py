@@ -65,15 +65,14 @@ def generate_one_solution(
 
     for attempt in range(max_retries):
         try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.8,
-                max_tokens=800,
-            )
+            _reasoning = any(model.startswith(p) for p in ("gpt-5", "o1", "o3", "o4"))
+            _kw = {"model": model, "messages": [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_prompt}],
+                "max_completion_tokens": 4000 if _reasoning else 800}
+            if not _reasoning:
+                _kw["temperature"] = 0.8
+            resp = client.chat.completions.create(**_kw)
             
             solution_text = resp.choices[0].message.content
             steps = parse_steps(solution_text)
@@ -196,7 +195,7 @@ def main():
          open(error_path, "a", encoding="utf-8") as ferr, \
          ThreadPoolExecutor(max_workers=args.workers) as ex:
         futures = [
-            ex.submit(generate_one_solution, client, row, pers, args.model, verifier)
+            ex.submit(generate_one_solution, client, row, pers, args.model, verifier=verifier)
             for row, pers in tasks
         ]
         for i, fut in enumerate(as_completed(futures)):
