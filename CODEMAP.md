@@ -1,354 +1,222 @@
-# CODEMAP — 파일별 위치·역할 요약
+# CODEMAP — 파일별 위치·역할
 
-레포에 있는 모든 코드/설정/문서 파일을 *어디에 있고, 무슨 일을 하는지* 쉬운 말로 정리한다.
-처음 들어오는 팀원이 "내가 X 바꾸려면 어느 파일 봐야 해?"에 5분 안에 답을 찾는 게 목표.
+"내가 X를 바꾸려면 어느 파일을 봐야 하나"에 빠르게 답하기 위한 인덱스. 실행 순서와 흐름은 [PIPELINE.md](PIPELINE.md)를 참조.
 
-> 모든 경로는 레포 루트(`Persona-Step-DPO/`) 기준. 예: `data_pipeline/0_seed_problems.py`는
-> 실제로 `Persona-Step-DPO/data_pipeline/0_seed_problems.py`.
+> 모든 경로는 레포 루트 기준.
+
+## 용어 대응표
+
+코드는 초기 명칭(`persona`, `belief`, `bc_`)을 그대로 쓴다. **파일명·yaml 키·jsonl 필드값이라 바꾸면 스크립트와 기존 산출물이 전부 깨지므로 유지했다.** 논문·포스터 용어와의 대응은 다음과 같다.
+
+| 논문·포스터 | 코드 식별자 |
+|---|---|
+| SLC-StepDPO | `bc_stepdpo`, `BC-StepDPO` (구 Belief-Conditional StepDPO) |
+| 학생 수준 조건 `c` | `persona`, `persona_id`, `persona_tag` |
+| 교육과정 제약 프로파일 `κ_c` | `personas.json`의 `forbidden_terms` / `preferred_terms` / `term_evidence` |
+| Type-1 (same-level pair) | `pair_type: "step_pair"` |
+| Type-2 (cross-level flip pair) | `pair_type: "belief_flip_pair"` |
+| `reject_level` | `reject_persona` |
+| Explanation Match | `persona_consistency`, `step_persona_err_rate` |
+| Belief-Flip | `belief_flip_accuracy` |
 
 ---
 
-## 🚀 빠른 길찾기
+## 빠른 길찾기
 
 | 하고 싶은 일 | 봐야 할 파일 |
 |---|---|
-| 페르소나 추가하거나 어휘 수정 | `personas.json` |
-| 어떤 단계에서 어떤 명령으로 무엇이 만들어지는지 알고 싶음 | `PIPELINE.md` |
-| **Step-DPO 데이터 빌더 코드 보기** (first-error → rectify) | `data_pipeline_stepdpo/README.md` |
-| **Full Step-DPO 데이터 빌더 코드 보기** (Type-1 + Type-2) | `data_pipeline_fullstepdpo/README.md` 또는 `data_pipeline/3_build_pairs.py` |
-| Step-DPO vs Full Step-DPO 학습 설정 차이 | `configs/default.yaml` ↔ `configs/step_dpo.yaml` |
-| 처음 한 번 sanity 테스트만 돌려보고 싶음 | `tests/README.md` |
-| 손실 수식이 코드로 어떻게 구현됐는지 | `bc_stepdpo_loss.py` |
-| GPT-4o judge가 어떤 프롬프트를 쓰는지 | `judge_prompts.py` |
-| 학습 데이터 생성 전체 일괄 실행 | `data_pipeline/run_full_pipeline.sh` |
+| 수준 조건 추가하거나 어휘 수정 | `personas.json` |
+| 손실 수식이 코드로 어떻게 구현됐는지 | `losses/bc_stepdpo_loss.py` |
+| GPT judge 프롬프트 수정 | `judge_prompts.py` |
+| 수준 적합성 판정 로직 (정규식 → LLM cascade) | `persona_verifier.py` |
+| 선호쌍이 어떻게 만들어지는지 | `data_pipeline_stepdpo/3_build_pairs.py` |
+| 학습 하이퍼파라미터·ablation toggle | `configs/default.yaml` (상단 주석에 조합표) |
+| 포스터 결과표 숫자의 출처 | `eval/*.json` + `data_pipeline/aggregate_results.py` |
+| 전체 파이프라인 한 번에 실행 | `scripts/bc_stepdpo_pipeline_slurm.sh` |
+| 실험 이력·과거 결과 | `docs/RESULTS_SUMMARY_2026-06-18.md`, `docs/HANDOFF.md` |
 
 ---
 
-## 📄 문서 (루트)
-
-### `README.md`
-방법론 전반 소개 문서. *처음 레포 들어왔을 때 가장 먼저 읽는 글*.
-
-손실식·페르소나 6종 개요·디렉토리 구조·실행 명령·ablation 표·참고 논문이 모두 들어 있다. 페이퍼 같은 톤이라 *왜* 이 framework가 필요한지를 알고 싶을 때 좋다.
-
-### `PIPELINE.md`
-데이터 파이프라인 전체(Stage 0 → 5)를 **Step-DPO 모드**와 **Full Step-DPO 모드**로 나눠 설명.
-
-각 Stage가 어떤 파일에서 무엇을 만들고, 두 모드가 어디서 분기되는지를 흐름도와 표로 정리. README가 "왜"라면 PIPELINE은 "어떻게 돌리는지"에 집중.
-
-### `CODEMAP.md` ← 본 파일
-모든 파일을 한 줄로 설명한 인덱스.
-
----
-
-## 🎭 페르소나·교육과정 정의 (루트 + `curriculum/`)
+## 루트 모듈
 
 ### `personas.json`
-**활성 페르소나 6종 정의 (영어 버전)**.
+**학생 수준 조건 6종 정의.** 학년 3종(초·중·고) × 성취 2종(상·하).
 
-연령 3종(초·중·고) × 난이도 2종(상위/하위)로 6개. 각 페르소나마다:
-- `tag` (예: `<elem_low>`): 모델이 보는 페르소나 식별 토큰
-- `vocabulary_guide` / `explanation_style`: GPT-4o가 페르소나처럼 풀이를 합성할 때 참고
-- `forbidden_terms` / `preferred_terms`: 어떤 어휘가 그 학년에 맞고 안 맞는지
-- `exemplar_standards`: 그 학년 학생이 할 수 있는 일 (교육과정 진술 발췌)
-- `term_evidence`: 각 어휘가 한국 2022 교육과정 어디서 처음 도입되는지
+각 수준마다 `tag`(`<elem_low>` 등 모델이 보는 식별 토큰), `vocabulary_guide` / `explanation_style`(생성 시 참고), `forbidden_terms` / `preferred_terms`(어휘 제약), `exemplar_standards`(교육과정 진술 발췌), `term_evidence`(각 어휘의 최초 도입 학년·코드)를 갖는다.
 
-학습 데이터 생성·GPT-4o judge·DPO 학습 모두 이 파일을 통해 페르소나를 인식. **수정 시 모든 stage 결과에 영향**.
+데이터 생성·judge·학습이 모두 이 파일을 통해 수준을 인식한다. **수정하면 모든 stage 결과에 영향.**
 
-### `personas_ko.json`
-영어 변환 이전의 원본 한국어 페르소나 정의 (단순 백업).
+### `persona_verifier.py`
+**수준 적합성 판정 3-stage cascade.**
 
-한국어 데이터셋(예: KMMLU-Math)으로 실험을 옮길 때 `mv personas_ko.json personas.json`으로 복귀하는 용도. 평소엔 안 건드림.
-
-### `curriculum/achievement_standards_2022.json`
-한국 2022 개정 수학과 교육과정의 254개 성취기준을 JSON으로 정리한 정적 데이터.
-
-학년군 5개(초1-2, 초3-4, 초5-6, 중학교, 고등학교) × 영역별로 텍스트 진술이 들어 있다. `derive_persona_evidence.py`가 이걸 보고 페르소나에 evidence를 자동 주입한다.
-
-### `derive_persona_evidence.py` (루트)
-`personas.json`을 교육과정 파일과 cross-reference해서 *각 어휘의 첫 도입 학년·코드*를 자동으로 채워 넣는 스크립트.
-
-예: forbidden_terms에 "common denominator"가 있으면 교육과정에서 통분이 도입되는 [6수01-06]을 찾아 `term_evidence`에 자동 기록. ⚠️ 영어 personas.json에 그대로 돌리면 한국어 evidence로 덮어쓰니 주의.
-
----
-
-## 🔧 공용 유틸·인프라 (루트)
-
-### `utils.py`
-공용 헬퍼 3개. *거의 모든 stage에서 import*하는 작은 모듈.
-
-| 함수 | 하는 일 |
-|---|---|
-| `load_personas(path)` | personas.json 로드 → 페르소나 리스트 |
-| `parse_steps(text)` | "Step 1: ... Step 2: ..." 형식 풀이를 step 리스트로 분리 |
-| `extract_gsm8k_answer(answer_text)` | GSM8K answer 필드에서 "#### 정답" 뒤를 추출 |
-
-### `inference_backend.py`
-**vLLM이 안 깔린 환경(Mac M-series 등)을 위한 transformers fallback**.
-
-`TransformersLLM`과 `TransformersSamplingParams`가 vLLM의 동명 클래스와 *동일한 인터페이스*를 제공. `data_pipeline/3_build_pairs.py`와 `data_pipeline/5_evaluate.py`가 try/except로 vLLM이 없으면 자동 fallback. **Mac에서 Stage 3·5를 돌릴 수 있게 해주는 핵심**.
+| 단계 | 방식 | 동작 |
+|---|---|---|
+| Stage A | 정규식 | `forbidden_terms` 단어경계 매치 → `reject_persona` 즉결, 교육과정 코드 자동 첨부. 통과 시 escalate (false-negative 가능) |
+| Stage B | 로컬 LLM | 다른 family base 모델로 verdict + confidence. threshold 이상이면 확정. 기본 off |
+| Stage C | GPT-4o-mini | 최종 판정 |
 
 ### `judge_prompts.py`
-GPT-4o judge용 system prompt 3종과 헬퍼.
+GPT judge용 system prompt 3종. 모두 수준 정의와 교육과정 evidence를 자동 주입한다.
 
-| 프롬프트 | 언제 사용 |
+| 프롬프트 | 사용처 |
 |---|---|
-| `GENERATOR_SYSTEM` | Stage 1에서 페르소나별 풀이 합성할 때 |
-| `STEP_JUDGE_SYSTEM` | Stage 3에서 각 step이 페르소나에 맞는지 평가할 때 |
-| `CROSS_BELIEF_CHECK_SYSTEM` | Stage 3에서 같은 step이 두 페르소나에서 라벨 뒤집히는지 확인할 때 (Type-2 페어 핵심) |
+| `GENERATOR_SYSTEM` | Stage 1 — 수준 조건 풀이 합성 |
+| `STEP_JUDGE_SYSTEM` | Stage 3 — 각 step의 수준 적합성 평가 |
+| `CROSS_BELIEF_CHECK_SYSTEM` | Stage 3 — 같은 step이 두 수준에서 라벨이 뒤집히는지 확인 (Type-2 핵심) |
 
-세 프롬프트 모두 페르소나·교육과정 evidence를 system prompt에 자동 주입. **judge 행동을 바꾸고 싶으면 이 파일 수정**.
+### `openai_client.py`
+API 키 failover. `OPENAI_API_KEY`가 할당량 소진되면 `OPENAI_API_KEY_FALLBACK`(쉼표 구분 다중)으로 자동 전환. 일시적 rate-limit은 호출부 재시도에 위임.
 
-### `bc_stepdpo_loss.py`
-**BC-StepDPO 학습 손실을 PyTorch로 구현**한 모듈 (Proposition 2의 직접 구현).
+### `inference_backend.py`
+vLLM 미설치 환경(Mac M-series 등)용 transformers fallback. `TransformersLLM` / `TransformersSamplingParams`가 vLLM 동명 클래스와 같은 인터페이스를 제공하며, 샘플링·평가 스크립트가 try/except로 자동 전환한다.
 
-핵심 함수:
-- `step_logprob(model, ...)`: 입력 시퀀스에서 *step 토큰만* (prefix 토큰은 제외) log 확률 합을 계산
-- `bc_stepdpo_loss(policy, ref, batch, beta)`: `-log σ(β · Δ_θ)` 산출 + Type-1/Type-2 분리 모니터링
-
-`data_pipeline/4_train_bc_stepdpo.py`가 이걸 import해서 학습. **손실 수식을 바꾸고 싶으면 여기**.
+### `utils.py`
+공용 헬퍼. `load_personas(path)`, `parse_steps(text)`("Step 1: …" 형식을 리스트로 분리), `extract_gsm8k_answer(text)`(`#### 정답` 추출).
 
 ---
 
-## 🛤 데이터 파이프라인
+## `losses/` — 손실 함수
 
-> Stage 0 → 1 → 2는 **`data_pipeline/`에 공통**. Stage 3에서 **모드별 디렉토리로 분기**한다.
->
-> - `data_pipeline_stepdpo/` — Step-DPO (first-error → rectify, `step_pair`만)
-> - `data_pipeline_fullstepdpo/` — Full-Step DPO (자가 지도 PRM 기반, *데이터 골격*)
-> - `data_pipeline/3_build_pairs.py` — 기존 빌더 (Type-1 + Type-2 동시 생성). "full" 모드 호환 경로로 유지.
+### `losses/bc_stepdpo_loss.py`
+**SLC-StepDPO 손실 구현.** 포스터의 손실이 여기 있다.
 
-### `data_pipeline/0_seed_problems.py` — Stage 0
-**시드 문제 모으기**. HuggingFace에서 MetaMathQA-40K(수학 문제 모음)를 받아 GSM8K 계열만 골라낸 뒤, 같은 문제를 6 페르소나에 복제한다.
+- `step_logprob(model, …)` — prefix 토큰을 제외하고 **step 토큰만** log 확률 합산. step-level masking의 실체
+- `bc_stepdpo_loss(policy, ref, batch, beta)` — `-log σ(β·Δθ)` 산출, Type-1 / Type-2 분리 모니터링
 
-- 입력: HuggingFace `meta-math/MetaMathQA-40K`
-- 출력: `data_pipeline/output/seed_problems.jsonl` (N × 6 행)
-- 한 행: `{problem_id, persona, question, gt_answer, ...}`
-
-### `data_pipeline/1_synthesize_sft.py` — Stage 1
-**SFT 학습 데이터 만들기**. 시드 jsonl의 각 (문제, 페르소나)에 대해 GPT-4o로 *그 페르소나에 맞는 풀이* 를 N개씩 합성한다.
-
-- 입력: `seed_problems.jsonl` + `personas.json` + `judge_prompts.GENERATOR_SYSTEM`
-- 출력: `data_pipeline/output/sft_data.jsonl`
-- 한 행: 합성된 풀이 1개 (`solution_text` + `steps`)
-
-### `data_pipeline/2_train_sft.py` — Stage 2
-**SFT 학습**. 합성 데이터로 Qwen3 base 모델을 LoRA fine-tune. 결과 모델이 이후 단계의 *기준 모델(π_ref)* 이 된다.
-
-- 입력: `sft_data.jsonl` + base 모델 (예: `Qwen/Qwen3-0.6B`)
-- 출력: `checkpoints/sft_ref/` (LoRA adapter)
-
-### `data_pipeline/3_build_pairs.py` — Stage 3 (Full Step-DPO 호환 경로)
-**선호 페어 데이터 만들기 (Type-1 + Type-2 동시 생성)**. π_ref로 풀이 K개씩 뽑고,
-GPT-4o가 각 step을 평가해 페어를 만든다.
-- **Type-1 (`step_pair`)**: 같은 페르소나 내에서 정답 step vs 오답 step
-- **Type-2 (`belief_flip_pair`)**: 같은 step이 한 페르소나엔 적절·다른 페르소나엔 부적절
-
-`tests/run_pairs.sh full` 또는 `run_full_pipeline.sh`가 호출. 본 빌더의
-*Step-DPO 정확도 문제*(first-error 미사용 등)를 보완한 분리 버전은
-`data_pipeline_stepdpo/`에 있음.
-
-- 입력: `checkpoints/sft_ref/` (π_ref) + `seed_problems.jsonl` + `personas.json`
-- 출력: `data_pipeline/output/preference_pairs.jsonl`
-- 참고: vLLM 미설치 환경(Mac 등)에선 `inference_backend.py`로 자동 fallback
-
-### `data_pipeline/3_5_analyze_flip_rate.py` — Stage 3.5
-**flip rate 측정**. 페어 데이터에서 *같은 step이 페르소나에 따라 평가가 뒤집히는 비율*을 계산. Full Step-DPO가 페르소나 신호를 진짜 학습할 수 있음을 보이는 핵심 지표.
-
-- 입력: `preference_pairs.jsonl`
-- 출력: `data_pipeline/output/flip_stats.json` + 콘솔 표
-
-### `data_pipeline/4_train_bc_stepdpo.py` — Stage 4
-**본 학습**. 페어 데이터로 π_ref를 DPO 학습. Step-DPO와 Full Step-DPO 모두 *같은 스크립트* — `--config`만 다르게 주면 된다:
-- `--config configs/step_dpo.yaml` → Step-DPO
-- `--config configs/default.yaml` → Full Step-DPO
-
-- 입력: `checkpoints/sft_ref/` + `preference_pairs.jsonl` + `bc_stepdpo_loss.py`
-- 출력: `checkpoints/{bc_stepdpo, step_dpo}/`
-
-### `data_pipeline/5_evaluate.py` — Stage 5
-**평가**. 학습된 모델로 풀이를 생성하고 4가지 지표(최종 정답률, step별 수학 정합성, 페르소나 일관성, flip 케이스 처리 능력)를 측정. Step-DPO vs Full Step-DPO 비교에 사용.
-
-- 입력: 학습된 체크포인트 + `seed_problems.jsonl`의 test split + `flip_stats.json`
-- 출력: `checkpoints/.../eval_results.json`
-
-### `data_pipeline/run_full_pipeline.sh`
-**Stage 0 → 5를 한 번에 돌리는 셸 스크립트** (Full Step-DPO 경로 기준).
-
-규모 조절은 환경변수: `N_PROBLEMS`(기본 1500), `SOLS_PER_ROW`(기본 5), `K_SAMPLES`(기본 8), `BASE_MODEL`(기본 `Qwen/Qwen3-0.6B`). 풀스케일은 Linux+CUDA 권장.
+### `losses/bc_fullstepdpo_loss.py`
+체인 전체에 per-step reward를 가중 합산하는 변형(`R̂θ(y|x,c) = Σ αᵢ·β·log[πθ/πref]`). PRM 계열 실험용이며 **포스터 결과에는 쓰이지 않았다.**
 
 ---
 
-## 🛤 데이터 파이프라인 — Step-DPO 전용 (`data_pipeline_stepdpo/`)
+## `data_pipeline/` — 공통 stage + 평가·집계
 
-> Step-DPO 본 정의(first-error → rectify)를 구현. 출력 스키마는
-> BC-StepDPO 학습(Proposition 2)에 그대로 들어간다.
-
-### `data_pipeline_stepdpo/3_locate_first_error.py` — Stage 3a
-**최초 오류 스텝 검출**. π_ref로 페르소나 조건 풀이 K개를 샘플링하고,
-실패한 궤적에 대해 GPT-4o로 *최초로 잘못된 스텝 인덱스*를 식별.
-
-- 입력: `checkpoints/sft_ref/` + `seed_problems.jsonl` + `personas.json`
-- 출력: `data_pipeline_stepdpo/output/located_errors.jsonl`
-  (`persona_id`/`persona_tag`/`sampled_steps`/`first_error_idx`/`error_reason`)
-
-### `data_pipeline_stepdpo/4_build_pairs.py` — Stage 3b
-**Rectification → step_pair 빌드**. 최초 오류 *직전*의 prefix까지를 fixed로 두고
-GPT-4o에게 *페르소나 적합한* 올바른 다음 스텝을 생성시켜 chosen으로 채택.
-
-- 입력: `located_errors.jsonl`
-- 출력: `data_pipeline_stepdpo/output/pairs_stepdpo.jsonl`
-  — 기존 BC-StepDPO 스키마와 동일 (`persona_id`/`persona_tag`/`prefix_steps`/
-  `step_win`/`step_lose`/`pair_type:"step_pair"`/`flip_persona_id:null`)
-- 학습: `data_pipeline/4_train_bc_stepdpo.py`로 그대로 학습 가능
-
-### `data_pipeline_stepdpo/README.md`
-파이프라인 개요·스키마·실행 가이드·`4_train_bc_stepdpo.py` 호환성 안내.
-
----
-
-## 🛤 데이터 파이프라인 — Full Step-DPO 전용 (`data_pipeline_fullstepdpo/`)
-
-> Full Step-DPO 본 정의(자가 지도 PRM)를 구현. 외부 모델(GPT-4) 의존 없이
-> Monte Carlo rollout으로 step value를 자동 라벨링하고, PRM을 학습해 모든 스텝에
-> per-step reward를 부여.
->
-> ⚠️ **현재는 데이터 생성 골격**. 학습 측 weighted DPO 손실은 별도 PR로 분리.
-
-### `data_pipeline_fullstepdpo/3a_mc_rollout_label.py` — Stage 3a
-**MC rollout step-value 자동 라벨**. 각 step의 prefix에서 M회 rollout → 정답 도달
-비율을 step_value(∈ [0,1])로 저장.
-
-### `data_pipeline_fullstepdpo/3b_train_prm.py` — Stage 3b
-**PRM 학습**. step_value를 회귀 타깃으로 LM backbone + reward head 학습.
-
-### `data_pipeline_fullstepdpo/3c_score_and_pack.py` — Stage 3c
-**Per-step reward 패킹**. 새 K개 체인을 샘플하고 PRM으로 모든 스텝에 reward를
-부여 → 체인 단위 JSONL로 저장 (페어 분해 없음).
-
-### `data_pipeline_fullstepdpo/README.md`
-파이프라인 개요·스키마·Step-DPO와의 비교표.
-
----
-
-## ⚙️ 학습 설정 (`configs/`)
-
-### `configs/default.yaml`
-**Full Step-DPO (BC-StepDPO) 기본 학습 설정**. toggle 3개 모두 OFF (=belief·type2 모두 사용).
-
-SFT 학습용(`sft:` 절)과 BC-StepDPO 학습용 하이퍼파라미터를 같은 파일에 둠. 상단 주석에 6개 ablation 조건의 toggle 조합표 있음.
-
-### `configs/step_dpo.yaml`
-**Step-DPO 모드 preset**. `default.yaml`을 그대로 두고 toggle 3개만 다르게:
-- `disable_belief_token: true`
-- `disable_type2: true`
-
-`disable_step_mask`는 false 유지 (Step-DPO의 step-level masking은 끄지 않음 — 그게 *원본* Step-DPO 핵심 트릭). 원본 Lai et al. Step-DPO와 동등한 학습을 위함.
-
----
-
-## 🧪 테스트 하니스 (`tests/`)
-
-> 풀스케일 학습 전에 *작은 규모로* 각 stage가 오류 없이 도는지 확인하는 sanity test.
-
-### `tests/README.md`
-3 phase × 2 mode sanity test의 *전체 사용법 + 비용·시간 추정 + 트러블슈팅*.
-
-처음 보는 사람도 5분 안에 phase A → B → C 일괄 실행할 수 있게 작성됨.
-
-### `tests/run_sft_data.sh`
-**Phase A: Stage 0+1 소규모 실행 + REPORT.md 자동 생성**.
-
-기본 N_PROBLEMS=2, SOLS_PER_ROW=2 → 약 24 SFT 행. GPT-4o ~24회 호출 (~$0.30, 1-2분). 결과는 `tests/output/sft_data/`에 저장.
-
-### `tests/run_sft_train.sh`
-**Phase B: Stage 2 SFT 1-epoch sanity 학습 + REPORT.md**.
-
-Phase A 산출물(sft_data.jsonl)을 입력으로 받아 Qwen3-0.6B에 LoRA SFT를 1 epoch 돌림. epochs/batch_size를 임시 yaml로 override해서 빠르게. Mac M2 16GB 기준 3-5분. NaN/Inf 발생 자동 체크.
-
-### `tests/run_pairs.sh`
-**Phase C: Stage 3 모드별 실행 + REPORT.md**.
-
-인자로 `step_dpo` 또는 `full`을 받아 *서로 다른 파이프라인*을 호출:
-- `step_dpo` → `data_pipeline_stepdpo/3_locate_first_error.py` + `4_build_pairs.py`
-- `full`     → `data_pipeline/3_build_pairs.py` + `3_5_analyze_flip_rate.py`
-
-K_SAMPLES=2 기본. 체크포인트 없으면 base model로 자동 fallback. 결과는 `tests/output/pairs_{mode}/`.
-
-### `tests/summarize.py`
-**각 phase의 산출물을 분석해 REPORT.md를 자동 작성**하는 generator.
-
-`phase` 인자(sft_data/sft_train/pairs)에 따라 다른 통계 산출:
-- `sft_data`: 행 수·페르소나별 분포·풀이 길이·샘플 1개씩
-- `sft_train`: exit code·loss curve·NaN 체크·adapter 파일 존재 확인
-- `pairs`: pair_type별 카운트·flip 매트릭스·샘플 페어
-
-마지막에 **자동 pass/fail verdict**와 트러블슈팅 힌트 추가. `tests/run_*.sh`가 마지막 단계로 이걸 호출.
-
----
-
-## 🎨 데모 (루트)
-
-### `app.py`
-학습된 모델 데모 진입점 — **현재 TODO 스텁** (구현 미완).
-
-향후 Gradio로 페르소나 선택 드롭다운 + 풀이 생성 UI 예정. 학습이 완료되어야 의미 있는 단계.
-
----
-
-## 📂 디렉토리별 한 줄 요약
-
-| 디렉토리 | 한 줄 |
+| 파일 | 역할 |
 |---|---|
-| `Persona-Step-DPO/` (루트) | 핵심 모듈(loss·judge·utils·inference) + 페르소나 + 문서 |
-| `Persona-Step-DPO/configs/` | 학습 yaml 설정 2종 (`default.yaml` = Full, `step_dpo.yaml` = Step-DPO) |
-| `Persona-Step-DPO/curriculum/` | 한국 2022 개정 수학 교육과정 정적 JSON (페르소나 evidence 소스) |
-| `Persona-Step-DPO/data_pipeline/` | Stage 0~2 공통 + Stage 3 Full 호환 빌더 + Stage 4·5 + orchestrator |
-| `Persona-Step-DPO/data_pipeline_stepdpo/` | **Stage 3 Step-DPO 전용** (first-error → rectify) |
-| `Persona-Step-DPO/data_pipeline_fullstepdpo/` | **Stage 3 Full Step-DPO 전용** (MC PRM 기반, 데이터 골격) |
-| `Persona-Step-DPO/tests/` | phase별 sanity test 셸 + REPORT 자동 생성기 |
-| `Persona-Step-DPO/outputs/` | 학습 산출 체크포인트 (.gitignore됨) |
-| `Persona-Step-DPO/checkpoints/` | 동일 (.gitignore됨) |
-| `Persona-Step-DPO/{data_pipeline,…}/output/` | 파이프라인 jsonl 산출물 (.gitignore됨) |
-| `Persona-Step-DPO/tests/output/` | 테스트 산출물 + REPORT.md (.gitignore됨) |
+| `0_seed_problems.py` | Stage 0. MetaMathQA-40K → `GSM_` 필터 → dedupe → 6수준 복제 |
+| `1_synthesize_sft.py` | Stage 1. GPT-4o로 수준 조건 풀이 합성 |
+| `1_5_split_train_test.py` | Stage 1.5. **`problem_id` 단위 train/test 분리.** held-out 주장의 근거 |
+| `2_train_sft.py` | Stage 2. Qwen3-1.7B + LoRA SFT → π_ref |
+| `merge_adapter.py` | Stage 2.5. LoRA 머지 → standalone. 샘플링 백엔드가 어댑터를 직접 못 읽어서 필수 |
+| `shared_sampling.py` | Stage 3a. π_ref K개 샘플 + 수준 라벨 cascade. 여러 모드가 이 산출물을 공유 |
+| `rejudge_contaminated.py` | judge 실패(429·timeout)로 `persona_ok`가 강제 기록된 오염 라벨만 재판정 |
+| `augment_type2.py` | Type-2 증량. 후보 수준 제한을 풀고 모든 후보에 cross-check 병렬 수행 |
+| `5_evaluate.py` | Stage 5. Final Acc / Step Acc / Explanation Match. **캠페인 스크립트가 실제로 쓰는 평가기** |
+| `eval_belief_flip.py` | Belief-Flip. 저수준·고수준 풀이를 각각 생성해 3조건 만족 문제를 카운트 |
+| `aggregate_results.py` | `eval/*.json` → 4지표 결과표 이미지 |
+| `make_result_figures.py`, `make_heldout_figures.py`, `make_compare_figure.py` | 그림 생성 |
 
 ---
 
-## 🔗 누가 누구를 import하나 (의존 그래프)
+## `data_pipeline_stepdpo/` — 선호쌍 구성 + 학습
 
-```
-[루트 공통 모듈]
-  ├─ utils.py             ← 모든 stage가 import
-  ├─ judge_prompts.py     ← 1_synthesize_sft.py, 3_build_pairs.py, 5_evaluate.py
-  ├─ personas.json        ← utils.load_personas로 모든 stage 로드
-  ├─ bc_stepdpo_loss.py   ← 4_train_bc_stepdpo.py만 import
-  └─ inference_backend.py ← 3_build_pairs.py, data_pipeline_stepdpo/*, 5_evaluate.py (vLLM 없을 때)
+| 파일 | 역할 |
+|---|---|
+| `3_build_pairs.py` | Stage 3b. 수학 single-step judge + Type-1 / Type-2 페어 구성. Stage 3a 산출물을 받는 shared 모드 권장 |
+| `3_5_analyze_flip_rate.py` | Type-1 중 `reject_persona` 비율, Type-2 개수·수준쌍 매트릭스 |
+| `4_train_bc_stepdpo.py` | Stage 4. **SLC-StepDPO 본 학습.** `--lambda-sft`로 anchor 조절 |
+| `run_pipeline.sh`, `README.md` | 디렉토리 단독 실행 가이드 |
 
+---
 
-[파이프라인 흐름]
-  data_pipeline/0_seed_problems.py
-        ↓ (seed_problems.jsonl)
-  data_pipeline/1_synthesize_sft.py
-        ↓ (sft_data.jsonl)
-  data_pipeline/2_train_sft.py
-        ↓ (checkpoints/sft_ref/)
-        ↓
-        ├─────── Step-DPO 경로 ────────┐         ┌─── Full 경로 ────────┐
-        ↓                              ↓         ↓                       ↓
-  data_pipeline_stepdpo/        data_pipeline_stepdpo/   data_pipeline/3_build_pairs.py
-    3_locate_first_error.py  →   4_build_pairs.py       (Type-1 + Type-2)
-        ↓ (located_errors)              ↓ (pairs_stepdpo.jsonl)         ↓ (preference_pairs.jsonl)
-                                                                          ↓
-                                                                data_pipeline/3_5_analyze_flip_rate.py
-                                                                          ↓ (flip_stats.json)
-                              ↓                                          ↓
-                              └────────── data_pipeline/4_train_bc_stepdpo.py ─────┘
-                                                          ↓
-                                              (checkpoints/{step_dpo,bc_stepdpo}/)
-                                                          ↓
-                                                 data_pipeline/5_evaluate.py
-                                                          ↓
-                                                   (eval_results.json)
-```
+## `data_pipeline_fullstepdpo/` — PRM 계열 (미완)
 
-테스트 하니스(`tests/run_*.sh`)는 위 흐름의 *각 화살표마다 최소 규모로 1회 검증*하고 REPORT.md를 자동 생성한다.
+자가 지도 PRM을 학습해 모든 step에 per-step reward를 부여하는 경로. 외부 GPT 의존 없음. **데이터 골격 단계이며 포스터 결과와 무관하다.**
+
+`3a_mc_rollout_label.py`(MC rollout으로 step value 라벨) → `3b_train_prm.py`(PRM 학습) → `3c_score_and_pack.py`(reward 패킹) → `4_train_fullstepdpo.py`.
+
+---
+
+## `evaluation/` — 보조 평가
+
+| 파일 | 역할 |
+|---|---|
+| `5_evaluate.py` | 평가기 **변형본**. Belief-Flip을 held-out Type-2 페어의 logprob win rate로 계산 |
+| `5_5_make_eval_subset.py` | 평가 서브셋 구성 |
+| `6_check_format.py` | 출력 형식(단계 분리·Final 표기) 준수율 |
+| `6_5_dump_generations.py` | 생성 결과 덤프 |
+| `7_logprob_analysis.py` | logprob 기반 분석 |
+| `7_5_rejudge_persona.py` | 수준 라벨 재판정 |
+| `8_summarize_bc_smoke.py` | 파이프라인 실행 결과 정리 문서 자동 생성 |
+
+> ⚠️ `5_evaluate.py`가 **두 곳에 있다.** 포스터 Table 1은 `data_pipeline/5_evaluate.py` + `data_pipeline/eval_belief_flip.py` 조합으로 산출됐다 (Belief-Flip = 생성 기반 flip 카운트, 분모 60문제). `evaluation/5_evaluate.py`는 logprob win rate 방식이라 **값이 다르다.** 혼동 주의.
+
+---
+
+## `configs/` — 학습 설정
+
+| 파일 | 용도 |
+|---|---|
+| `default.yaml` | 기본 설정. 상단 주석에 ablation toggle 조합표 |
+| `bc_full_run.yaml` | 풀스케일 본 실험 |
+| `bc_retrain.yaml`, `bc_retrain_v3.yaml` | 재학습 preset |
+| `abl_vanilla_dpo.yaml` | ablation — step masking 없음 |
+| `abl_step_dpo.yaml` | ablation — StepDPO 재현 (`disable_type2: true`) |
+| `abl_type1_only.yaml` | ablation — Type-1만 |
+| `step_dpo.yaml` | StepDPO 모드 preset |
+| `bc_smoke.yaml`, `sft_smoke.yaml`, `smoke.yaml` | 소규모 검증 |
+
+toggle 3종: `disable_step_mask`(step masking 해제), `disable_belief_token`(prompt에서 수준 태그 제거), `disable_type2`(Type-2 제외).
+
+---
+
+## `scripts/` — 실행·그림
+
+**파이프라인**
+
+| 스크립트 | 용도 |
+|---|---|
+| `bc_stepdpo_pipeline_slurm.sh` | **메인 오케스트레이터.** 머지 → 샘플링 → 페어 → 학습 |
+| `sft_slurm.sh` | Stage 2 SFT 단독 |
+| `build_pairs_full_slurm.sh` | Stage 3 페어 구성 단독 |
+| `runpod_pipeline.sh` | RunPod 환경용 |
+
+**실험 캠페인**
+
+| 스크립트 | 용도 |
+|---|---|
+| `ablation_campaign_slurm.sh` | Vanilla DPO / StepDPO / Type-1-only 학습 → 머지 → 5모델 평가 → 집계 |
+| `run_lambda_sweep_slurm.sh` | λ_sft sweep |
+| `run_slc_n60.sh` | SLC 모델 n=60 평가 |
+| `run_flip_only.sh`, `reeval_flip_heldout_slurm.sh` | Belief-Flip 재평가 |
+| `overnight_strengthen_slurm.sh`, `run_b_campaign_slurm.sh`, `retrain_bc_slurm.sh`, `fullstepdpo_campaign_slurm.sh` | 장기 실험 |
+| `eval_format_slurm.sh`, `logprob_slurm.sh` | 보조 평가 |
+| `watchdog_bc_pipe.sh`, `watchdog_ovn.sh`, `watchdog_runb.sh` | 장기 job 감시 |
+
+**포스터 그림**
+
+`fig_table_lambda.py`(λ sweep 결과표), `fig_qual_frac.py`(초등 분수 비유 예시), `fig_qual_high.py`(고등 공식 예시), `gen_qual_examples.py`(정성 예시 생성).
+
+> `*_slurm.sh`는 서버 경로 `~/project/Persona-Step-DPO`를 `cd` 한다. 레포명을 바꿨다면 서버 클론 디렉토리명도 확인할 것.
+
+---
+
+## 데이터·결과
+
+| 경로 | 내용 |
+|---|---|
+| `curriculum/achievement_standards_2022.json` | 2022 개정 수학과 교육과정 성취기준. 학년군 5개(초1-2, 초3-4, 초5-6, 중, 고) × 영역별 |
+| `eval/*.json` | 평가 결과 원본. `bc_s0.01_c0.0`, `bc_s0.03_c0`, `slc_s0.01_flip`, `slc_s0.03_flip` |
+| `docs/figures_final/` | 포스터·보고용 최종 그림 |
+| `docs/figures/` | 초기 비교 그림 |
+| `docs/poster/` | 학회 발표 포스터 (PDF + PNG) |
+
+## 문서
+
+| 파일 | 내용 |
+|---|---|
+| `README.md` | 방법론 개요·포스터·결과표·인용 |
+| `PIPELINE.md` | Stage 0→5 실행 흐름 |
+| `CODEMAP.md` | 본 파일 |
+| `docs/RESULTS_SUMMARY_2026-06-18.md` | **전체 ablation 결과 원본.** 누수 정정 이력 포함 |
+| `docs/HANDOFF.md` | 실험 인수인계 기록 |
+| `docs/SFT_형식검증_결과보고.md`, `docs/SFT_출력전체.md` | SFT 출력 형식 검증 |
+| `docs/DATA_PIPELINE_NOTION.md`, `docs/FULLSTEPDPO_PLAN.md`, `docs/CHANGES_TO_MERGE.md` | 설계 노트 |
+| `docs/학교서버_실행가이드.md` | 학교 서버 운용 가이드 |
+
+> `docs/` 내부 문서는 **작성 시점의 기록**이라 구 명칭(BC-StepDPO, persona, Full Step-DPO)이 그대로 남아 있다. 소급 수정하지 않았다.
+
+## `useless/` · `tests/`
+
+`useless/`는 폐기된 파일 보관소다 (`root_app.py`, `root_derive_persona_evidence.py`, 구 `tests/` 하니스 등). 현재 파이프라인은 아무것도 참조하지 않는다.
+
+`tests/sft_vs_trained.py`가 유일하게 남은 테스트로, SFT 모델과 학습 모델의 출력을 비교한다.
