@@ -215,8 +215,8 @@ toggle 3종: `disable_step_mask`(step masking 해제), `disable_belief_token`(pr
 
 > `docs/` 내부 문서는 **작성 시점의 기록**이라 구 명칭(BC-StepDPO, persona, Full Step-DPO)이 그대로 남아 있다. 소급 수정하지 않았다.
 
-## `useless/` · `tests/`
+## `archive/` · `tests/`
 
-`useless/`는 폐기된 파일 보관소다 (`root_app.py`, `root_derive_persona_evidence.py`, 구 `tests/` 하니스 등). 현재 파이프라인은 아무것도 참조하지 않는다.
+`archive/`는 폐기된 파일 보관소다 (`root_app.py`, `root_derive_persona_evidence.py`, 구 `tests/` 하니스, 특허 도면 스크립트 등). 현재 파이프라인은 아무것도 참조하지 않으며, 이력 보존 목적으로만 남겨두었다.
 
 `tests/sft_vs_trained.py`가 유일하게 남은 테스트로, SFT 모델과 학습 모델의 출력을 비교한다.

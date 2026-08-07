@@ -43,7 +43,7 @@ echo "=== node: $(hostname) ==="
 nvidia-smi || true
 
 echo "=== [1/2] 파일럿 선호쌍 생성 (held-out sft_test) ==="
-python useless/data_pipeline_stepdpo_make_pilot_pairs.py \
+python scripts/make_pilot_pairs.py \
     --input data_pipeline/output/sft_test.jsonl \
     --personas-path personas.json \
     --output "$PAIRS" \
