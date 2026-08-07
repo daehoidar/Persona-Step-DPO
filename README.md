@@ -9,41 +9,40 @@
 
 [![SLC-StepDPO poster](docs/poster/SLC-StepDPO_poster_KAIA2026.png)](docs/poster/SLC-StepDPO_poster_KAIA2026.pdf)
 
-> 이미지를 클릭하면 [원본 PDF](docs/poster/SLC-StepDPO_poster_KAIA2026.pdf)로 이동한다.
-
 ## Method
 
-AI 수학 튜터는 두 요건을 동시에 만족해야 한다. 각 추론 step이 수학적으로 타당해야 하고(정확성), 학생이 배운 범위의 어휘와 개념으로 설명해야 한다(수준 적합성). 정답이지만 너무 어렵거나, 쉽지만 틀린 풀이는 충분하지 않다.
+수학 튜터는 두 요건을 동시에 만족해야 한다. 각 풀이 단계가 수학적으로 타당해야 하고, 동시에 학생이 배운 범위의 어휘로 설명해야 한다. 정답이지만 너무 어려운 풀이나, 쉽지만 틀린 풀이는 둘 다 충분하지 않다.
 
-SLC-StepDPO는 StepDPO를 학생 수준 변수 `c`로 조건화해 이 둘을 하나의 손실로 최적화한다. `c`는 학년(초·중·고) × 성취(상·하)의 6수준이며(예: `<elem_low>`, `<high_high>`), 각 수준은 교육과정 제약 프로파일 `κ_c`에 대응한다. 수준별 화법·금지 어휘·선호 어휘와 교육과정 근거는 `personas.json`에 정의되어 있고, 각 어휘는 2022 개정 교육과정의 학년별 도입 시점과 대조해 검증했다.
+SLC-StepDPO는 StepDPO를 학생 수준 조건 $c$ 로 조건화해 이 두 요건을 하나의 손실로 최적화한다. $c$ 는 학년 세 종류와 성취 두 종류를 조합한 여섯 수준이며, 각 수준은 2022 개정 교육과정에서 유도한 제약 프로파일 $\kappa_c$ 에 대응한다.
 
-모든 선호쌍은 하나의 스키마 `(x, c, s_{1:k-1}, s_w, s_l)`와 하나의 손실을 공유한다.
+문제 $x$, 수준 조건 $c$, 앞선 단계 $s_{1:k-1}$, 선호 단계 $s_w$, 비선호 단계 $s_l$ 에 대해 단계 단위 선호 점수를 다음과 같이 정의한다.
 
-```
-L_Total = L_SLC-StepDPO + λ_sft · L_sft
+$$\Delta_\theta = \log \frac{\pi_\theta(s_w \mid x, c, s_{1:k-1})}{\pi_{ref}(s_w \mid x, c, s_{1:k-1})} - \log \frac{\pi_\theta(s_l \mid x, c, s_{1:k-1})}{\pi_{ref}(s_l \mid x, c, s_{1:k-1})}$$
 
-L_SLC-StepDPO = - E[ log σ( β Δθ ) ]
-Δθ = [log πθ(s_w | x,c,prefix) - log π_ref(s_w | x,c,prefix)]
-   - [log πθ(s_l | x,c,prefix) - log π_ref(s_l | x,c,prefix)]
-L_sft = - E[ log πθ(s_w | x,c,prefix) ]
-```
+전체 손실은 선호 손실과 SFT 앵커의 합이다.
 
-선호 데이터는 두 종류의 쌍으로 구성한다.
+$$\mathcal{L} = -\mathbb{E}\left[\log \sigma(\beta \Delta_\theta)\right] - \lambda_{sft} \mathbb{E}\left[\log \pi_\theta(s_w \mid x, c, s_{1:k-1})\right]$$
 
-- **Type-1 (same-level)**: 동일 수준 `c` 안에서, acceptable step과 수학 오류(`reject_math`) 또는 수준 불일치(`reject_level`)로 reject된 step의 쌍.
-- **Type-2 (cross-level flip)**: 동일한 step이 두 수준 `c`, `c'`에서 win과 lose로 뒤집히는 쌍. 수준 제어 신호를 명시적으로 학습한다.
+여기서 $\pi_{ref}$ 는 SFT로 고정된 기준 모델이고 $\pi_\theta$ 는 학습 대상이다. 앵커 항은 선호 단계에 확률 질량을 붙잡아 정답 정확도가 떨어지는 것을 막으며, $\lambda_{sft}$ 가 그 강도를 조절한다.
 
-자세한 수식과 데이터 구성 절차는 위 포스터에 정리되어 있다.
+선호쌍은 두 단계로 만든다. Type 1은 같은 수준 안에서 적절한 단계와 거절된 단계를 짝지은 것이고, 거절 사유는 수학 오류이거나 수준 불일치다.
+
+Type 2는 Type 1에서 파생된다. Type 1 쌍 가운데 수준 불일치로 거절된 단계만 골라, 그 단계가 다른 수준에서는 적절한지 확인한다. 뒤집힘이 확인되면 방향이 반대인 두 쌍을 함께 만든다. 같은 단계가 원래 수준에서는 비선호이고 다른 수준에서는 선호가 되므로, 승패가 텍스트가 아니라 조건에 의해 결정된다. 수학 오류로 거절된 단계는 어느 수준에서도 적절할 수 없으므로 대상이 아니다. 두 종류 모두 같은 스키마와 같은 손실을 쓴다.
+
+수준별 어휘 제약과 교육과정 근거는 `personas.json`에 정의되어 있다. 데이터 구성 절차는 위 포스터에 정리되어 있다.
 
 ## Pipeline
 
-1. **SFT** — GPT-4o가 `κ_c` 아래 생성한 수준 조건 풀이로 미세조정 → `π_ref`
-2. **Sampling & Labeling** — `π_ref`에서 step 샘플링 후 `acceptable` / `reject_math` / `reject_level` 라벨링
-3. **Pair 구성** — Type-1, Type-2 쌍 → `D_train = D_step ∪ D_flip`
-4. **SLC-StepDPO 학습**
-5. **평가**
+1. MetaMathQA-40K에서 GSM8K 계열 문제 1,500개를 뽑아 여섯 수준에 배정한다.
+2. GPT-4o가 각 문제와 수준 조건에 대해 제약 프로파일을 지키는 풀이를 생성한다.
+3. 같은 문제의 변형이 학습과 평가에 함께 들어가지 않도록 문제 단위로 나눈다.
+4. 생성된 풀이로 Qwen3-1.7B를 미세조정해 기준 모델 $\pi_{ref}$ 를 얻는다.
+5. $\pi_{ref}$ 에서 풀이를 여러 개 샘플링하고 각 단계를 적절 또는 거절로 라벨링한다. 거절 사유는 수학 오류와 수준 불일치로 구분한다.
+6. 같은 수준 안에서 적절한 단계와 거절된 단계를 짝지어 Type 1 쌍을 만든다.
+7. Type 1 쌍 가운데 수준 불일치로 거절된 단계가 다른 수준에서는 적절한지 확인하고, 뒤집힘이 확인되면 방향이 반대인 Type 2 쌍 두 개를 만든다.
+8. 두 종류를 합친 집합으로 SLC-StepDPO를 학습하고 GPT-4o 심판으로 네 지표를 측정한다.
 
-학습 데이터는 MetaMathQA-40K에서 1,500문제를 샘플링했고, 선호 데이터 생성에는 GPT-4o-mini를 사용했다. 실행 가이드는 [PIPELINE.md](PIPELINE.md), 파일별 역할은 [CODEMAP.md](CODEMAP.md)를 참조한다.
+선호 데이터 생성에는 GPT-4o-mini를, 최종 평가 심판에는 GPT-4o를 사용했다. 단계별 실행 가이드는 [PIPELINE.md](PIPELINE.md), 파일별 역할은 [CODEMAP.md](CODEMAP.md)에 있다.
 
 ## Results
 
